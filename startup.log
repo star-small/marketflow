@@ -1,0 +1,44 @@
+2025/07/10 21:07:53 INFO Starting MarketFlow application...
+2025/07/10 21:07:53 INFO Loading configuration...
+2025/07/10 21:07:53 INFO Configuration loaded port=8080
+2025/07/10 21:07:53 INFO Creating application instance...
+2025/07/10 21:07:53 INFO Initializing application...
+2025/07/10 21:07:53 INFO Initializing application...
+2025/07/10 21:07:53 INFO Database connected successfully
+2025/07/10 21:07:53 INFO Redis connected successfully
+2025/07/10 21:07:53 INFO Creating price aggregator...
+2025/07/10 21:07:53 INFO Price aggregator created successfully
+2025/07/10 21:07:53 INFO Application initialized successfully
+2025/07/10 21:07:53 INFO Starting market data processor...
+2025/07/10 21:07:53 INFO Switching to live mode...
+2025/07/10 21:07:53 INFO Switched to live mode successfully
+2025/07/10 21:07:53 INFO === StartDataProcessing CALLED === mode=live
+2025/07/10 21:07:53 INFO Starting data processing... mode=live workers=15
+2025/07/10 21:07:53 INFO Active adapters count count=3 mode=live
+2025/07/10 21:07:53 INFO Available adapter index=0 name=exchange1 healthy_before_start=false
+2025/07/10 21:07:53 INFO Available adapter index=1 name=exchange2 healthy_before_start=false
+2025/07/10 21:07:53 INFO Available adapter index=2 name=exchange3 healthy_before_start=false
+2025/07/10 21:07:53 INFO Starting server...
+2025/07/10 21:07:53 INFO Starting price aggregator...
+2025/07/10 21:07:53 INFO Starting price aggregator...
+2025/07/10 21:07:53 INFO Price aggregator started
+2025/07/10 21:07:53 INFO Price aggregator started successfully
+2025/07/10 21:07:53 INFO Background processes started successfully
+2025/07/10 21:07:53 INFO Starting adapter index=0 name=exchange1 mode=live
+2025/07/10 21:07:53 INFO Starting server port=8080
+2025/07/10 21:07:53 INFO Aggregation timer starting initial_delay=6.875501196s next_minute=2025-07-10T21:08:00.000+05:00
+2025/07/10 21:07:53 INFO Live exchange adapter started exchange=exchange1 port=40101
+2025/07/10 21:07:53 INFO Started exchange adapter name=exchange1 healthy_after_start=true
+2025/07/10 21:07:53 INFO Starting adapter index=1 name=exchange2 mode=live
+2025/07/10 21:07:53 INFO Live exchange adapter started exchange=exchange2 port=40102
+2025/07/10 21:07:53 INFO Started exchange adapter name=exchange2 healthy_after_start=true
+2025/07/10 21:07:53 INFO Starting adapter index=2 name=exchange3 mode=live
+2025/07/10 21:07:53 INFO Live exchange adapter started exchange=exchange3 port=40103
+2025/07/10 21:07:53 INFO Started exchange adapter name=exchange3 healthy_after_start=true
+2025/07/10 21:07:53 INFO Input channels collected count=3
+2025/07/10 21:07:53 INFO Data processing started successfully exchanges=3 workers=15
+2025/07/10 21:07:53 INFO Adapter health summary healthy=3 total=3
+2025/07/10 21:07:53 INFO Market data processor started successfully
+2025/07/10 21:07:53 INFO 🔍 CONSUMER STARTED: Starting market data processing goroutine...
+2025/07/10 21:07:53 INFO Starting fan-in aggregator inputs=3
+2025/07/10 21:07:53 INFO Starting distributor workers=15

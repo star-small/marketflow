@@ -41,6 +41,17 @@ type ExchangeService struct {
 }
 
 // NewExchangeService creates a new exchange service with default configuration
+// internal/core/service/exchange/service.go
+
+// internal/core/service/exchange/service.go
+// Replace the NewExchangeService function with this version that increases buffer sizes
+
+// internal/core/service/exchange/service.go
+// Replace the NewExchangeService function with this version that increases buffer sizes
+
+// internal/core/service/exchange/service.go
+// Replace the NewExchangeService function with this version that increases buffer sizes
+
 func NewExchangeService() port.ExchangeService {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -53,205 +64,21 @@ func NewExchangeService() port.ExchangeService {
 	numWorkers := 15 // 5 workers per exchange as specified in requirements
 
 	return &ExchangeService{
-		currentMode:        "test", // Default to test mode
-		liveAdapters:       liveAdapters,
-		testAdapters:       testAdapters,
-		activeAdapters:     testAdapters, // Start with test adapters
-		aggregatedDataChan: make(chan domain.MarketData, 1000),
+		currentMode:    "test", // Default to test mode
+		liveAdapters:   liveAdapters,
+		testAdapters:   testAdapters,
+		activeAdapters: testAdapters, // Start with test adapters
+		// INCREASED BUFFER SIZES to handle pipeline bottleneck
+		aggregatedDataChan: make(chan domain.MarketData, 5000), // Increased from 1000
 		workerPool:         make([]chan domain.MarketData, numWorkers),
-		resultChan:         make(chan domain.MarketData, 1000),
+		resultChan:         make(chan domain.MarketData, 10000), // Increased from 1000
 		ctx:                ctx,
 		cancel:             cancel,
 		numWorkers:         numWorkers,
 	}
 }
 
-// NewExchangeServiceWithAdapters creates a service with custom adapters
-func NewExchangeServiceWithAdapters(liveAdapters, testAdapters []port.ExchangeAdapter) port.ExchangeService {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	numWorkers := 15 // 5 workers per exchange
-
-	return &ExchangeService{
-		currentMode:        "test",
-		liveAdapters:       liveAdapters,
-		testAdapters:       testAdapters,
-		activeAdapters:     testAdapters,
-		aggregatedDataChan: make(chan domain.MarketData, 1000),
-		workerPool:         make([]chan domain.MarketData, numWorkers),
-		resultChan:         make(chan domain.MarketData, 1000),
-		ctx:                ctx,
-		cancel:             cancel,
-		numWorkers:         numWorkers,
-	}
-}
-
-// Simple fix: Replace ONLY the SwitchToTestMode and SwitchToLiveMode methods in your existing exchange service
-
-func (e *ExchangeService) SwitchToLiveMode(ctx context.Context) error {
-	e.modeMutex.Lock()
-	defer e.modeMutex.Unlock()
-
-	if e.currentMode == "live" {
-		return nil // Already in live mode
-	}
-
-	slog.Info("Switching to live mode...")
-
-	// Stop current adapters
-	if err := e.stopCurrentAdapters(); err != nil {
-		return fmt.Errorf("failed to stop current adapters: %w", err)
-	}
-
-	// Switch to live adapters
-	e.activeAdapters = e.liveAdapters
-	e.currentMode = "live"
-
-	// Restart data processing if it was running
-	e.runMutex.RLock()
-	wasRunning := e.isRunning
-	e.runMutex.RUnlock()
-
-	if wasRunning {
-		// Use background context instead of HTTP request context
-		bgCtx := context.Background()
-		if err := e.StartDataProcessing(bgCtx); err != nil {
-			return fmt.Errorf("failed to restart data processing: %w", err)
-		}
-	}
-
-	slog.Info("Switched to live mode successfully")
-	return nil
-}
-
-// Add debug logging to your SwitchToTestMode method in exchange service:
-
-func (e *ExchangeService) SwitchToTestMode(ctx context.Context) error {
-
-	slog.Info("=== SwitchToTestMode CALLED ===")
-	e.modeMutex.Lock()
-	defer e.modeMutex.Unlock()
-
-	slog.Info("SwitchToTestMode called", "currentMode", e.currentMode)
-
-	if e.currentMode == "test" {
-		slog.Info("Already in test mode, no switch needed")
-		return nil // Already in test mode
-	}
-
-	slog.Info("Switching to test mode...")
-
-	// Stop current adapters
-	slog.Info("Stopping current adapters...")
-	if err := e.stopCurrentAdapters(); err != nil {
-		slog.Error("Failed to stop current adapters", "error", err)
-		return fmt.Errorf("failed to stop current adapters: %w", err)
-	}
-
-	// Switch to test adapters
-	e.activeAdapters = e.testAdapters
-	e.currentMode = "test"
-	slog.Info("Switched active adapters to test", "count", len(e.activeAdapters))
-
-	// Check if data processing was running
-	e.runMutex.RLock()
-	wasRunning := e.isRunning
-	e.runMutex.RUnlock()
-
-	slog.Info("Checking if restart needed", "wasRunning", wasRunning, "isRunning", e.isRunning)
-
-	// Restart data processing if it was running
-	if wasRunning {
-		slog.Info("Restarting data processing with test adapters...")
-		// Use background context instead of HTTP request context
-		bgCtx := context.Background()
-		if err := e.StartDataProcessing(bgCtx); err != nil {
-			slog.Error("Failed to restart data processing", "error", err)
-			return fmt.Errorf("failed to restart data processing: %w", err)
-		}
-		slog.Info("Data processing restarted successfully")
-	} else {
-		slog.Warn("Data processing was not running, not restarting")
-	}
-
-	slog.Info("Switched to test mode successfully")
-	return nil
-}
-
-func (e *ExchangeService) GetCurrentMode() string {
-	e.modeMutex.RLock()
-	defer e.modeMutex.RUnlock()
-	return e.currentMode
-}
-
-// Add these debug lines to your StartDataProcessing method in exchange service:
-
-func (e *ExchangeService) StartDataProcessing(ctx context.Context) error {
-	slog.Info("=== StartDataProcessing CALLED ===", "mode", e.currentMode)
-	e.runMutex.Lock()
-	defer e.runMutex.Unlock()
-
-	if e.isRunning {
-		slog.Info("Data processing already running")
-		return nil // Already running
-	}
-
-	slog.Info("Starting data processing...", "mode", e.currentMode, "workers", e.numWorkers)
-
-	// ADD THIS DEBUG LINE:
-	slog.Info("Active adapters count", "count", len(e.activeAdapters), "mode", e.currentMode)
-	for i, adapter := range e.activeAdapters {
-		slog.Info("Available adapter", "index", i, "name", adapter.Name())
-	}
-
-	// Create a background context that won't be cancelled by HTTP requests
-	e.ctx, e.cancel = context.WithCancel(context.Background())
-
-	// Initialize worker pool channels
-	for i := 0; i < e.numWorkers; i++ {
-		e.workerPool[i] = make(chan domain.MarketData, 100)
-	}
-
-	// Start exchange adapters and collect their channels
-	var inputChannels []<-chan domain.MarketData
-	for i, adapter := range e.activeAdapters {
-		// ADD THIS DEBUG LINE:
-		slog.Info("Starting adapter", "index", i, "name", adapter.Name(), "mode", e.currentMode)
-
-		dataChan, err := adapter.Start(e.ctx)
-		if err != nil {
-			slog.Error("Failed to start adapter", "adapter", adapter.Name(), "error", err)
-			continue
-		}
-		inputChannels = append(inputChannels, dataChan)
-		slog.Info("Started exchange adapter", "name", adapter.Name(), "healthy", adapter.IsHealthy())
-	}
-
-	// ADD THIS DEBUG LINE:
-	slog.Info("Input channels collected", "count", len(inputChannels))
-
-	if len(inputChannels) == 0 {
-		slog.Error("No exchange adapters started successfully")
-		return fmt.Errorf("no exchange adapters started successfully")
-	}
-
-	// Start concurrency pipeline
-	e.wg.Add(1)
-	go e.fanIn(inputChannels)
-
-	e.wg.Add(1)
-	go e.distributor()
-
-	for i := 0; i < e.numWorkers; i++ {
-		e.wg.Add(1)
-		go e.worker(i, e.workerPool[i])
-	}
-
-	e.isRunning = true
-	slog.Info("Data processing started successfully", "exchanges", len(inputChannels), "workers", e.numWorkers)
-	return nil
-}
-
+// Also replace the StopDataProcessing method to recreate larger channels
 func (e *ExchangeService) StopDataProcessing() error {
 	e.runMutex.Lock()
 	defer e.runMutex.Unlock()
@@ -299,9 +126,9 @@ func (e *ExchangeService) StopDataProcessing() error {
 		close(e.resultChan)
 	}
 
-	// Recreate channels for next start
-	e.aggregatedDataChan = make(chan domain.MarketData, 1000)
-	e.resultChan = make(chan domain.MarketData, 1000)
+	// Recreate channels with LARGER buffers for next start
+	e.aggregatedDataChan = make(chan domain.MarketData, 5000) // Increased
+	e.resultChan = make(chan domain.MarketData, 10000)        // Increased
 	for i := range e.workerPool {
 		e.workerPool[i] = make(chan domain.MarketData, 100)
 	}
@@ -310,6 +137,212 @@ func (e *ExchangeService) StopDataProcessing() error {
 	slog.Info("Data processing stopped")
 	return nil
 }
+
+// NewExchangeServiceWithAdapters creates a service with custom adapters
+func NewExchangeServiceWithAdapters(liveAdapters, testAdapters []port.ExchangeAdapter) port.ExchangeService {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	numWorkers := 15 // 5 workers per exchange
+
+	return &ExchangeService{
+		currentMode:        "test",
+		liveAdapters:       liveAdapters,
+		testAdapters:       testAdapters,
+		activeAdapters:     testAdapters,
+		aggregatedDataChan: make(chan domain.MarketData, 1000),
+		workerPool:         make([]chan domain.MarketData, numWorkers),
+		resultChan:         make(chan domain.MarketData, 1000),
+		ctx:                ctx,
+		cancel:             cancel,
+		numWorkers:         numWorkers,
+	}
+}
+
+// internal/core/service/exchange/service.go
+// Replace the SwitchToTestMode method with this complete fix
+
+func (e *ExchangeService) SwitchToTestMode(ctx context.Context) error {
+	slog.Info("=== SwitchToTestMode CALLED ===")
+	e.modeMutex.Lock()
+	defer e.modeMutex.Unlock()
+
+	slog.Info("SwitchToTestMode called", "currentMode", e.currentMode)
+
+	if e.currentMode == "test" {
+		slog.Info("Already in test mode, no switch needed")
+		return nil
+	}
+
+	slog.Info("Switching to test mode...")
+
+	// Check if data processing was running BEFORE stopping
+	e.runMutex.RLock()
+	wasRunning := e.isRunning
+	e.runMutex.RUnlock()
+
+	slog.Info("Checking initial state", "wasRunning", wasRunning)
+
+	// STEP 1: STOP data processing completely if it was running
+	if wasRunning {
+		slog.Info("Stopping data processing before mode switch...")
+		if err := e.StopDataProcessing(); err != nil {
+			slog.Error("Failed to stop data processing", "error", err)
+			return fmt.Errorf("failed to stop data processing: %w", err)
+		}
+		slog.Info("Data processing stopped successfully")
+	}
+
+	// STEP 2: Create FRESH test adapters (this ensures clean state)
+	slog.Info("Creating fresh test adapters...")
+	e.testAdapters = exchanges.CreateTestExchangeAdapters()
+
+	// STEP 3: Switch to fresh test adapters
+	e.activeAdapters = e.testAdapters
+	e.currentMode = "test"
+	slog.Info("Switched active adapters to fresh test adapters", "count", len(e.activeAdapters))
+
+	// STEP 4: START data processing with new adapters if it was running before
+	if wasRunning {
+		slog.Info("Starting data processing with fresh test adapters...")
+		bgCtx := context.Background()
+		if err := e.StartDataProcessing(bgCtx); err != nil {
+			slog.Error("Failed to start data processing with test adapters", "error", err)
+			return fmt.Errorf("failed to start data processing: %w", err)
+		}
+		slog.Info("Data processing started successfully with test adapters")
+	}
+
+	slog.Info("Switched to test mode successfully")
+	return nil
+}
+
+// Also update the SwitchToLiveMode for consistency
+func (e *ExchangeService) SwitchToLiveMode(ctx context.Context) error {
+	e.modeMutex.Lock()
+	defer e.modeMutex.Unlock()
+
+	if e.currentMode == "live" {
+		return nil // Already in live mode
+	}
+
+	slog.Info("Switching to live mode...")
+
+	// Check if data processing was running BEFORE stopping
+	e.runMutex.RLock()
+	wasRunning := e.isRunning
+	e.runMutex.RUnlock()
+
+	// STEP 1: STOP data processing completely if it was running
+	if wasRunning {
+		slog.Info("Stopping data processing before mode switch...")
+		if err := e.StopDataProcessing(); err != nil {
+			slog.Error("Failed to stop data processing", "error", err)
+			return fmt.Errorf("failed to stop data processing: %w", err)
+		}
+		slog.Info("Data processing stopped successfully")
+	}
+
+	// STEP 2: Switch to live adapters
+	e.activeAdapters = e.liveAdapters
+	e.currentMode = "live"
+
+	// STEP 3: START data processing with live adapters if it was running before
+	if wasRunning {
+		slog.Info("Starting data processing with live adapters...")
+		bgCtx := context.Background()
+		if err := e.StartDataProcessing(bgCtx); err != nil {
+			return fmt.Errorf("failed to restart data processing: %w", err)
+		}
+		slog.Info("Data processing started successfully with live adapters")
+	}
+
+	slog.Info("Switched to live mode successfully")
+	return nil
+}
+
+func (e *ExchangeService) GetCurrentMode() string {
+	e.modeMutex.RLock()
+	defer e.modeMutex.RUnlock()
+	return e.currentMode
+}
+
+// internal/core/service/exchange/service.go
+// Replace the StartDataProcessing method with this enhanced version
+
+func (e *ExchangeService) StartDataProcessing(ctx context.Context) error {
+	slog.Info("=== StartDataProcessing CALLED ===", "mode", e.currentMode)
+	e.runMutex.Lock()
+	defer e.runMutex.Unlock()
+
+	if e.isRunning {
+		slog.Warn("Data processing already running - this should not happen during mode switch!")
+		return fmt.Errorf("data processing already running")
+	}
+
+	slog.Info("Starting data processing...", "mode", e.currentMode, "workers", e.numWorkers)
+
+	// Debug: Show active adapters
+	slog.Info("Active adapters count", "count", len(e.activeAdapters), "mode", e.currentMode)
+	for i, adapter := range e.activeAdapters {
+		slog.Info("Available adapter", "index", i, "name", adapter.Name(), "healthy_before_start", adapter.IsHealthy())
+	}
+
+	// Create a background context that won't be cancelled by HTTP requests
+	e.ctx, e.cancel = context.WithCancel(context.Background())
+
+	// Initialize worker pool channels
+	for i := 0; i < e.numWorkers; i++ {
+		e.workerPool[i] = make(chan domain.MarketData, 100)
+	}
+
+	// Start exchange adapters and collect their channels
+	var inputChannels []<-chan domain.MarketData
+	for i, adapter := range e.activeAdapters {
+		slog.Info("Starting adapter", "index", i, "name", adapter.Name(), "mode", e.currentMode)
+
+		dataChan, err := adapter.Start(e.ctx)
+		if err != nil {
+			slog.Error("Failed to start adapter", "adapter", adapter.Name(), "error", err)
+			continue
+		}
+		inputChannels = append(inputChannels, dataChan)
+		slog.Info("Started exchange adapter", "name", adapter.Name(), "healthy_after_start", adapter.IsHealthy())
+	}
+
+	slog.Info("Input channels collected", "count", len(inputChannels))
+
+	if len(inputChannels) == 0 {
+		slog.Error("No exchange adapters started successfully")
+		return fmt.Errorf("no exchange adapters started successfully")
+	}
+
+	// Start concurrency pipeline
+	e.wg.Add(1)
+	go e.fanIn(inputChannels)
+
+	e.wg.Add(1)
+	go e.distributor()
+
+	for i := 0; i < e.numWorkers; i++ {
+		e.wg.Add(1)
+		go e.worker(i, e.workerPool[i])
+	}
+
+	e.isRunning = true
+	slog.Info("Data processing started successfully", "exchanges", len(inputChannels), "workers", e.numWorkers)
+
+	// Debug: Verify all adapters are healthy after starting
+	healthyCount := 0
+	for _, adapter := range e.activeAdapters {
+		if adapter.IsHealthy() {
+			healthyCount++
+		}
+	}
+	slog.Info("Adapter health summary", "healthy", healthyCount, "total", len(e.activeAdapters))
+
+	return nil
+}
+
 func (e *ExchangeService) GetDataStream() <-chan domain.MarketData {
 	return e.resultChan
 }
@@ -386,7 +419,9 @@ func (e *ExchangeService) distributor() {
 	}
 }
 
-// Worker: Processes individual market data
+// internal/core/service/exchange/service.go
+// Replace the worker method with this improved version
+
 func (e *ExchangeService) worker(id int, workerChan <-chan domain.MarketData) {
 	defer e.wg.Done()
 
@@ -394,30 +429,39 @@ func (e *ExchangeService) worker(id int, workerChan <-chan domain.MarketData) {
 	defer slog.Debug("Worker stopped", "id", id)
 
 	processedCount := 0
+	droppedCount := 0
 
 	for {
 		select {
 		case data, ok := <-workerChan:
 			if !ok {
-				slog.Debug("Worker channel closed", "id", id, "processed", processedCount)
+				slog.Debug("Worker channel closed", "id", id, "processed", processedCount, "dropped", droppedCount)
 				return
 			}
 
 			// Process the data (validation, enrichment, etc.)
 			processedData := e.processMarketData(data)
 
-			// Send to result channel
+			// Send to result channel with longer timeout but still track drops
 			select {
 			case e.resultChan <- processedData:
 				processedCount++
-			case <-time.After(100 * time.Millisecond):
-				slog.Warn("Result channel full, dropping processed data", "worker", id)
+				// Log every 100 successful processes (less frequent logging)
+				if processedCount%100 == 0 {
+					slog.Debug("Worker processed batch", "worker", id, "processed", processedCount, "dropped", droppedCount)
+				}
+			case <-time.After(500 * time.Millisecond): // Increased timeout from 100ms to 500ms
+				droppedCount++
+				// Only log every 20 drops to reduce log spam
+				if droppedCount%20 == 0 {
+					slog.Warn("Result channel still full, dropping processed data", "worker", id, "dropped", droppedCount, "processed", processedCount)
+				}
 			case <-e.ctx.Done():
 				return
 			}
 
 		case <-e.ctx.Done():
-			slog.Debug("Worker context cancelled", "id", id, "processed", processedCount)
+			slog.Info("Worker context cancelled", "id", id, "processed", processedCount, "dropped", droppedCount)
 			return
 		}
 	}

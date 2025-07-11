@@ -61,24 +61,43 @@ func (l *LiveExchangeAdapter) Start(ctx context.Context) (<-chan domain.MarketDa
 	return l.dataChan, nil
 }
 
+// internal/adapters/exchanges/live.go
+// Replace the Stop method with this safe version
+
+// internal/adapters/exchanges/live.go
+// Replace the Stop method with this safe version
+
 func (l *LiveExchangeAdapter) Stop() error {
+	// Use atomic compare-and-swap or simple check to prevent double-stop
 	if !l.isRunning {
+		slog.Info("Live adapter already stopped", "exchange", l.name)
 		return nil
 	}
 
 	l.isRunning = false
 	l.isHealthy = false
 
-	// Close stop channel
-	close(l.stopChan)
-
-	// Close connection
+	// Close connection first
 	if l.conn != nil {
 		l.conn.Close()
 	}
 
-	// Close data channel
-	close(l.dataChan)
+	// SAFE CHANNEL CLOSING: Use defer+recover to handle any panic
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Warn("Recovered from panic during channel close", "exchange", l.name, "panic", r)
+		}
+	}()
+
+	// Close stop channel (this signals goroutines to stop)
+	if l.stopChan != nil {
+		close(l.stopChan)
+	}
+
+	// Close data channel (this notifies consumers)
+	if l.dataChan != nil {
+		close(l.dataChan)
+	}
 
 	slog.Info("Live exchange adapter stopped", "exchange", l.name)
 	return nil

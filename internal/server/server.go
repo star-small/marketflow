@@ -98,9 +98,10 @@ func (app *App) Initialize() error {
 		cacheAdapter = cache.NewRedisAdapter(redisClient)
 		slog.Info("Redis connected successfully")
 	}
+	app.cacheAdapter = cacheAdapter
 
 	// Initialize repositories
-	priceRepository := postgres.NewPriceRepository(app.db)
+	app.priceRepository = postgres.NewPriceRepository(app.db)
 
 	// Initialize services following hexagonal architecture
 
@@ -108,7 +109,7 @@ func (app *App) Initialize() error {
 	app.exchangeService = exchange.NewExchangeService()
 
 	// 2. Create Price Service (business logic layer)
-	app.priceService = prices.NewPriceService(cacheAdapter, priceRepository)
+	app.priceService = prices.NewPriceService(cacheAdapter, app.priceRepository)
 
 	// 3. Create Health Service
 	app.healthService = health.NewHealthService(app.db, cacheAdapter, app.exchangeService)
@@ -116,21 +117,25 @@ func (app *App) Initialize() error {
 	// 4. Create Mode Service
 	app.modeService = mode.NewModeService(app.exchangeService)
 
-	// 5. Create Handlers (adapters layer)
+	// 5. CRITICAL FIX: Create Price Aggregator
+	slog.Info("Creating price aggregator...")
+	app.priceAggregator = aggregation.NewPriceAggregator(app.priceService)
+	slog.Info("Price aggregator created successfully")
+
+	// 6. Create Handlers (adapters layer)
 	priceHandler := v1.NewPriceHandler(app.priceService)
 	healthHandler := v1.NewHealthHandler(app.healthService)
 	modeHandler := v1.NewModeHandler(app.modeService)
 
-	// 6. Set up routes
+	// 7. Set up routes
 	v1.SetMarketRoutes(app.router, priceHandler, healthHandler, modeHandler)
 
-	// 7. Start background data processing
+	// 8. Start background data processing
 	go app.startMarketDataProcessor()
 
 	slog.Info("Application initialized successfully")
 	return nil
 }
-
 func (app *App) initializeDatabase() error {
 	dbConn, err := postgres.NewDbConnInstance(&app.cfg.Repository)
 	if err != nil {
@@ -141,6 +146,9 @@ func (app *App) initializeDatabase() error {
 	slog.Info("Database connected successfully")
 	return nil
 }
+
+// internal/server/server.go
+// Replace the initializeCache method with this version
 
 func (app *App) initializeCache() error {
 	redisClient := redis.NewClient(&redis.Options{
@@ -154,20 +162,37 @@ func (app *App) initializeCache() error {
 		WriteTimeout: 3 * time.Second,
 	})
 
-	// Test Redis connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Test Redis connection with retry
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		app.redisClient = nil
-		app.cacheAdapter = nil
-		return err
+	var lastErr error
+	for attempts := 0; attempts < 3; attempts++ {
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			lastErr = err
+			slog.Warn("Redis connection attempt failed", "attempt", attempts+1, "error", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// Success!
+		app.redisClient = redisClient
+		app.cacheAdapter = cache.NewRedisAdapter(redisClient)
+		slog.Info("Redis connected successfully")
+		return nil
 	}
 
-	app.redisClient = redisClient
-	app.cacheAdapter = cache.NewRedisAdapter(redisClient)
-	slog.Info("Redis connected successfully")
-	return nil
+	// All attempts failed
+	slog.Error("Failed to connect to Redis after 3 attempts", "lastError", lastErr)
+
+	// OPTION 1: Fail hard (recommended for production)
+	return fmt.Errorf("failed to connect to Redis: %w", lastErr)
+
+	// OPTION 2: Continue without cache (for development)
+	// app.redisClient = nil
+	// app.cacheAdapter = nil
+	// slog.Warn("Running without Redis cache - data will not be stored")
+	// return nil
 }
 
 func (app *App) initializeServices() error {
@@ -185,7 +210,7 @@ func (app *App) initializeServices() error {
 
 	// 5. Create Price Aggregator
 	app.priceAggregator = aggregation.NewPriceAggregator(app.priceService)
-
+	slog.Info("Services initialized successfully")
 	slog.Info("Services initialized successfully")
 	return nil
 }
@@ -204,11 +229,14 @@ func (app *App) initializeHandlers() error {
 }
 
 func (app *App) startBackgroundProcesses() error {
-	// Start market data processor
-	go app.startMarketDataProcessor()
-
 	// Start price aggregator
-	app.priceAggregator.Start()
+	slog.Info("Starting price aggregator...")
+	if app.priceAggregator != nil {
+		app.priceAggregator.Start()
+		slog.Info("Price aggregator started successfully")
+	} else {
+		slog.Error("Price aggregator is nil, cannot start")
+	}
 
 	// Start cleanup routines
 	if app.redisClient != nil {
@@ -222,6 +250,12 @@ func (app *App) startBackgroundProcesses() error {
 }
 
 func (app *App) Run() {
+	// Start background processes BEFORE starting the HTTP server
+	if err := app.startBackgroundProcesses(); err != nil {
+		slog.Error("Failed to start background processes", "error", err)
+		return
+	}
+
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", app.cfg.App.Port),
 		Handler: app.router,
@@ -265,54 +299,72 @@ func (app *App) startMarketDataProcessor() {
 	slog.Info("Market data processor started successfully")
 }
 
-// processMarketData handles incoming market data and stores it in cache and aggregator
-// Replace the processMarketData function in internal/server/server.go
+// internal/server/server.go
+// Replace the processMarketData function with this debug version
+
+// internal/server/server.go
+// Replace the processMarketData function with this debug version
+
+// internal/server/server.go
+// Add this quick fix to the processMarketData function
+
+// internal/server/server.go
+// Replace the processMarketData function with this version that connects the aggregator
 
 func (app *App) processMarketData(dataStream <-chan domain.MarketData) {
-	slog.Info("Starting market data processing goroutine...")
+	slog.Info("🔍 CONSUMER STARTED: Starting market data processing goroutine...")
+
+	processedCount := 0
+	errorCount := 0
+	aggregatorCount := 0
 
 	for {
 		select {
 		case data, ok := <-dataStream:
 			if !ok {
-				slog.Info("Market data stream closed")
+				slog.Info("🔍 CONSUMER: Market data stream closed", "processed", processedCount, "errors", errorCount, "aggregated", aggregatorCount)
 				return
 			}
 
-			//slog.Info("Received market data for cache storage", "symbol", data.Symbol, "price", data.Price, "exchange", data.Exchange)
+			processedCount++
 
-			// Store in Redis cache if available
-			if app.redisClient != nil {
-				// Create context for this operation
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
-				// Create cache adapter
-				cacheAdapter := cache.NewRedisAdapter(app.redisClient)
-
-				// Create proper cache key (should match what API expects)
+			// STORE IN REDIS CACHE
+			if app.cacheAdapter != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 				key := fmt.Sprintf("latest:%s:%s", data.Symbol, data.Exchange)
 
-				slog.Debug("Storing in cache", "key", key, "symbol", data.Symbol, "exchange", data.Exchange)
-
-				// Store the data
-				if err := cacheAdapter.SetPrice(ctx, key, data); err != nil {
-					slog.Error("Failed to store price in cache", "error", err, "key", key, "symbol", data.Symbol, "exchange", data.Exchange)
-				} else {
-					slog.Debug("Successfully stored price in cache", "key", key, "symbol", data.Symbol, "price", data.Price)
+				if err := app.cacheAdapter.SetPrice(ctx, key, data); err != nil {
+					errorCount++
+					if errorCount%50 == 0 {
+						slog.Error("🔍 CONSUMER: Redis error", "error", err, "errorCount", errorCount)
+					}
 				}
-
 				cancel()
-			} else {
-				slog.Warn("Redis client not available, skipping cache storage", "symbol", data.Symbol)
 			}
 
-			// Send to aggregator for minute-by-minute processing
+			// CRITICAL FIX: SEND TO PRICE AGGREGATOR
 			if app.priceAggregator != nil {
+				// Send data to aggregator for PostgreSQL storage
 				app.priceAggregator.ProcessPrice(data)
+				aggregatorCount++
+
+				// Log aggregator activity
+				if aggregatorCount%100 == 0 {
+					slog.Info("🔍 CONSUMER: Sent to aggregator", "aggregated", aggregatorCount, "symbol", data.Symbol, "exchange", data.Exchange)
+				}
+			} else {
+				if processedCount%100 == 0 {
+					slog.Warn("🔍 CONSUMER: No price aggregator available")
+				}
+			}
+
+			// Log progress
+			if processedCount%200 == 0 {
+				slog.Info("🔍 CONSUMER: Processing progress", "processed", processedCount, "aggregated", aggregatorCount, "errors", errorCount)
 			}
 
 		case <-app.ctx.Done():
-			slog.Info("Market data processing stopped")
+			slog.Info("🔍 CONSUMER: Context cancelled", "processed", processedCount, "errors", errorCount, "aggregated", aggregatorCount)
 			return
 		}
 	}
@@ -376,6 +428,7 @@ func (app *App) Shutdown() error {
 	// Stop price aggregator
 	if app.priceAggregator != nil {
 		app.priceAggregator.Stop()
+		slog.Info("Price aggregator stopped")
 	}
 
 	// Stop exchange service

@@ -45,47 +45,6 @@ func NewTestExchangeAdapter(name string) port.ExchangeAdapter {
 	}
 }
 
-func (t *TestExchangeAdapter) Start(ctx context.Context) (<-chan domain.MarketData, error) {
-	if t.isRunning {
-		return t.dataChan, nil
-	}
-
-	t.isRunning = true
-
-	// Start data generation in goroutines for each symbol
-	for _, symbol := range t.symbols {
-		go t.generateDataForSymbol(ctx, symbol)
-	}
-
-	slog.Info("Test exchange adapter started", "exchange", t.name)
-	return t.dataChan, nil
-}
-
-func (t *TestExchangeAdapter) Stop() error {
-	if !t.isRunning {
-		return nil
-	}
-
-	t.isRunning = false
-
-	// Close stop channel to signal all goroutines
-	close(t.stopChan)
-
-	// Close data channel
-	close(t.dataChan)
-
-	slog.Info("Test exchange adapter stopped", "exchange", t.name)
-	return nil
-}
-
-func (t *TestExchangeAdapter) Name() string {
-	return t.name
-}
-
-func (t *TestExchangeAdapter) IsHealthy() bool {
-	return t.isRunning
-}
-
 func (t *TestExchangeAdapter) generateDataForSymbol(ctx context.Context, symbol string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -95,14 +54,14 @@ func (t *TestExchangeAdapter) generateDataForSymbol(ctx context.Context, symbol 
 
 	basePrice := t.basePrices[symbol]
 	currentPrice := basePrice
-	trend := 1.0 // 1.0 for upward, -1.0 for downward
+	trend := 1.0
 
-	// Random seed for this symbol to make it more realistic
+	// Random seed for this symbol
 	source := rand.NewSource(time.Now().UnixNano() + int64(len(symbol)*len(t.name)))
 	rng := rand.New(source)
 
-	// Generate price updates every 100ms to 2 seconds
-	ticker := time.NewTicker(time.Duration(100+rng.Intn(1900)) * time.Millisecond)
+	// Generate price updates every 5-10 seconds
+	ticker := time.NewTicker(time.Duration(5000+rng.Intn(5000)) * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -112,29 +71,94 @@ func (t *TestExchangeAdapter) generateDataForSymbol(ctx context.Context, symbol 
 		case <-t.stopChan:
 			return
 		case <-ticker.C:
+			if !t.isRunning {
+				return
+			}
+
 			// Generate realistic price movement
 			currentPrice = t.generateNextPrice(rng, symbol, currentPrice, basePrice, &trend)
 
 			marketData := domain.MarketData{
 				Symbol:    symbol,
 				Price:     currentPrice,
-				Timestamp: time.Now().Unix(),
+				Timestamp: time.Now().UnixMilli(),
 				Exchange:  t.name,
 			}
 
-			// Send to data channel if running
-			if t.isRunning {
-				select {
-				case t.dataChan <- marketData:
-				case <-time.After(50 * time.Millisecond):
-					// Drop if channel is full
-				}
+			select {
+			case t.dataChan <- marketData:
+			case <-time.After(100 * time.Millisecond):
+				// Channel blocked, skip this data point
+			case <-ctx.Done():
+				return
+			case <-t.stopChan:
+				return
 			}
-
-			// Vary the ticker interval for more realistic data
-			ticker.Reset(time.Duration(100+rng.Intn(1900)) * time.Millisecond)
 		}
 	}
+}
+func (t *TestExchangeAdapter) Start(ctx context.Context) (<-chan domain.MarketData, error) {
+	slog.Info("Starting test exchange adapter", "exchange", t.name, "isRunning", t.isRunning)
+
+	if t.isRunning {
+		slog.Warn("Test adapter already running", "exchange", t.name)
+		return t.dataChan, nil
+	}
+
+	// CRITICAL FIX: Always create NEW channels when starting
+	// This prevents "close of closed channel" panics on restart
+	t.dataChan = make(chan domain.MarketData, 100)
+	t.stopChan = make(chan struct{})
+	t.isRunning = true
+
+	slog.Info("Test adapter channels recreated", "exchange", t.name)
+
+	// Start data generation in goroutines for each symbol
+	for _, symbol := range t.symbols {
+		slog.Info("Starting data generation for symbol", "exchange", t.name, "symbol", symbol)
+		go t.generateDataForSymbol(ctx, symbol)
+	}
+
+	slog.Info("Test exchange adapter started successfully", "exchange", t.name, "symbols", len(t.symbols))
+	return t.dataChan, nil
+}
+
+func (t *TestExchangeAdapter) Stop() error {
+	slog.Info("Stopping test exchange adapter", "exchange", t.name, "isRunning", t.isRunning)
+
+	if !t.isRunning {
+		slog.Info("Test adapter already stopped", "exchange", t.name)
+		return nil
+	}
+
+	t.isRunning = false
+
+	// SAFE CHANNEL CLOSING: Use defer+recover to handle any panic
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Warn("Recovered from panic during test adapter channel close", "exchange", t.name, "panic", r)
+		}
+	}()
+
+	// Close stop channel (this signals data generation goroutines to stop)
+	if t.stopChan != nil {
+		close(t.stopChan)
+	}
+
+	// Close data channel (this notifies consumers that no more data is coming)
+	if t.dataChan != nil {
+		close(t.dataChan)
+	}
+
+	slog.Info("Test exchange adapter stopped", "exchange", t.name)
+	return nil
+}
+func (t *TestExchangeAdapter) Name() string {
+	return t.name
+}
+
+func (t *TestExchangeAdapter) IsHealthy() bool {
+	return t.isRunning
 }
 
 func (t *TestExchangeAdapter) generateNextPrice(rng *rand.Rand, symbol string, currentPrice, basePrice float64, trend *float64) float64 {
