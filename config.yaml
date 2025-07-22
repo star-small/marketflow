@@ -1,0 +1,45 @@
+server:
+  port: 8080
+
+database:
+  postgres:
+    host: localhost
+    port: 5432
+    user: marketflow
+    password: password
+    database: marketflow_db
+    sslmode: disable
+
+  redis:
+    host: localhost
+    port: 6379
+    password: ""
+    db: 0
+
+exchanges:
+  live:
+    - name: "exchange1"
+      host: "127.0.0.1"
+      port: 40101
+    - name: "exchange2"
+      host: "127.0.0.1"
+      port: 40102
+    - name: "exchange3"
+      host: "127.0.0.1"
+      port: 40103
+
+  test:
+    host: "127.0.0.1"
+    port: 50000
+
+processing:
+  workers_per_exchange: 5
+  batch_size: 100
+  aggregation_interval: "1m"
+
+symbols:
+  - "BTCUSDT"
+  - "DOGEUSDT"
+  - "TONUSDT"
+  - "SOLUSDT"
+  - "ETHUSDT"
