@@ -75,12 +75,24 @@ func (a *Adapter) SaveAggregatedData(ctx context.Context, data []models.Aggregat
 
 // GetAggregatedData retrieves aggregated data within a time range
 func (a *Adapter) GetAggregatedData(ctx context.Context, symbol, exchange string, from, to time.Time) ([]models.AggregatedData, error) {
-	query := `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
-			  FROM market_data
-			  WHERE pair_name = $1 AND exchange = $2 AND timestamp BETWEEN $3 AND $4
-			  ORDER BY timestamp DESC`
+	var query string
+	var args []interface{}
 
-	rows, err := a.db.QueryContext(ctx, query, symbol, exchange, from, to)
+	if exchange != "" {
+		query = `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
+				 FROM market_data
+				 WHERE pair_name = $1 AND exchange = $2 AND timestamp BETWEEN $3 AND $4
+				 ORDER BY timestamp DESC`
+		args = []interface{}{symbol, exchange, from, to}
+	} else {
+		query = `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
+				 FROM market_data
+				 WHERE pair_name = $1 AND timestamp BETWEEN $2 AND $3
+				 ORDER BY timestamp DESC`
+		args = []interface{}{symbol, from, to}
+	}
+
+	rows, err := a.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -102,16 +114,29 @@ func (a *Adapter) GetAggregatedData(ctx context.Context, symbol, exchange string
 
 // GetHighestPrice returns the highest price within a period
 func (a *Adapter) GetHighestPrice(ctx context.Context, symbol, exchange string, period time.Duration) (*models.AggregatedData, error) {
-	query := `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
-			  FROM market_data
-			  WHERE pair_name = $1 AND exchange = $2 AND timestamp >= $3
-			  ORDER BY max_price DESC
-			  LIMIT 1`
-
 	from := time.Now().Add(-period)
 
+	var query string
+	var args []interface{}
+
+	if exchange != "" {
+		query = `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
+				 FROM market_data
+				 WHERE pair_name = $1 AND exchange = $2 AND timestamp >= $3
+				 ORDER BY max_price DESC
+				 LIMIT 1`
+		args = []interface{}{symbol, exchange, from}
+	} else {
+		query = `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
+				 FROM market_data
+				 WHERE pair_name = $1 AND timestamp >= $2
+				 ORDER BY max_price DESC
+				 LIMIT 1`
+		args = []interface{}{symbol, from}
+	}
+
 	var item models.AggregatedData
-	err := a.db.QueryRowContext(ctx, query, symbol, exchange, from).Scan(
+	err := a.db.QueryRowContext(ctx, query, args...).Scan(
 		&item.ID, &item.PairName, &item.Exchange, &item.Timestamp,
 		&item.AveragePrice, &item.MinPrice, &item.MaxPrice)
 
@@ -127,16 +152,29 @@ func (a *Adapter) GetHighestPrice(ctx context.Context, symbol, exchange string, 
 
 // GetLowestPrice returns the lowest price within a period
 func (a *Adapter) GetLowestPrice(ctx context.Context, symbol, exchange string, period time.Duration) (*models.AggregatedData, error) {
-	query := `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
-			  FROM market_data
-			  WHERE pair_name = $1 AND exchange = $2 AND timestamp >= $3
-			  ORDER BY min_price ASC
-			  LIMIT 1`
-
 	from := time.Now().Add(-period)
 
+	var query string
+	var args []interface{}
+
+	if exchange != "" {
+		query = `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
+				 FROM market_data
+				 WHERE pair_name = $1 AND exchange = $2 AND timestamp >= $3
+				 ORDER BY min_price ASC
+				 LIMIT 1`
+		args = []interface{}{symbol, exchange, from}
+	} else {
+		query = `SELECT id, pair_name, exchange, timestamp, average_price, min_price, max_price
+				 FROM market_data
+				 WHERE pair_name = $1 AND timestamp >= $2
+				 ORDER BY min_price ASC
+				 LIMIT 1`
+		args = []interface{}{symbol, from}
+	}
+
 	var item models.AggregatedData
-	err := a.db.QueryRowContext(ctx, query, symbol, exchange, from).Scan(
+	err := a.db.QueryRowContext(ctx, query, args...).Scan(
 		&item.ID, &item.PairName, &item.Exchange, &item.Timestamp,
 		&item.AveragePrice, &item.MinPrice, &item.MaxPrice)
 
@@ -152,31 +190,57 @@ func (a *Adapter) GetLowestPrice(ctx context.Context, symbol, exchange string, p
 
 // GetAveragePrice returns the average price within a period
 func (a *Adapter) GetAveragePrice(ctx context.Context, symbol, exchange string, period time.Duration) (*models.AggregatedData, error) {
-	query := `SELECT AVG(average_price) as avg_price, MIN(min_price) as min_price, MAX(max_price) as max_price
-			  FROM market_data
-			  WHERE pair_name = $1 AND exchange = $2 AND timestamp >= $3`
-
 	from := time.Now().Add(-period)
 
-	var avgPrice, minPrice, maxPrice sql.NullFloat64
-	err := a.db.QueryRowContext(ctx, query, symbol, exchange, from).Scan(&avgPrice, &minPrice, &maxPrice)
+	var query string
+	var args []interface{}
+
+	if exchange != "" {
+		query = `SELECT
+					$1 as pair_name,
+					$2 as exchange,
+					NOW() as timestamp,
+					AVG(average_price) as average_price,
+					MIN(min_price) as min_price,
+					MAX(max_price) as max_price,
+					COUNT(*) as record_count
+				 FROM market_data
+				 WHERE pair_name = $1 AND exchange = $2 AND timestamp >= $3
+				 HAVING COUNT(*) > 0`
+		args = []interface{}{symbol, exchange, from}
+	} else {
+		query = `SELECT
+					$1 as pair_name,
+					'aggregated' as exchange,
+					NOW() as timestamp,
+					AVG(average_price) as average_price,
+					MIN(min_price) as min_price,
+					MAX(max_price) as max_price,
+					COUNT(*) as record_count
+				 FROM market_data
+				 WHERE pair_name = $1 AND timestamp >= $2
+				 HAVING COUNT(*) > 0`
+		args = []interface{}{symbol, from}
+	}
+
+	var item models.AggregatedData
+	var recordCount int
+	err := a.db.QueryRowContext(ctx, query, args...).Scan(
+		&item.PairName, &item.Exchange, &item.Timestamp,
+		&item.AveragePrice, &item.MinPrice, &item.MaxPrice, &recordCount)
 
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	if !avgPrice.Valid {
+	if recordCount == 0 {
 		return nil, nil
 	}
 
-	return &models.AggregatedData{
-		PairName:     symbol,
-		Exchange:     exchange,
-		Timestamp:    time.Now(),
-		AveragePrice: avgPrice.Float64,
-		MinPrice:     minPrice.Float64,
-		MaxPrice:     maxPrice.Float64,
-	}, nil
+	return &item, nil
 }
 
 // Close closes the storage connection
